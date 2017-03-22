@@ -15,56 +15,50 @@
  * under the License.
  */
 
-package com.spotify.scio.transforms;
+package com.spotify.scio.extra.transforms;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
-import com.google.common.util.concurrent.FutureCallback;
-import com.google.common.util.concurrent.Futures;
-import com.google.common.util.concurrent.ListenableFuture;
 import org.apache.beam.sdk.transforms.DoFn;
 
-import javax.annotation.Nullable;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutionException;
+import java.util.function.Function;
 
 /**
- * A base {@link DoFn} that handles asynchronous requests to an external service.
+ * A {@link DoFn} that handles asynchronous requests to an external service.
  */
-public abstract class AsyncDoFn<InputT, OutputT> extends DoFn<InputT, OutputT> {
-  /**
-   * Set up external resources, like clients to external services.
-   */
-  // FIXME: this might set up one copy per instance (core)
-  public abstract void setupResources();
+public abstract class BaseAsyncDoFn<InputT, OutputT, ResourceT, FutureT>
+    extends DoFnWithResource<InputT, OutputT, ResourceT> {
 
   /**
    * Process an element asynchronously.
    */
-  public abstract ListenableFuture<OutputT> processElement(InputT input);
+  public abstract FutureT processElement(InputT input);
 
-  private ConcurrentMap<ListenableFuture<OutputT>, Boolean> futures;
-  private ConcurrentLinkedQueue<OutputT> results;
-  private ConcurrentLinkedQueue<Throwable> errors;
+  protected abstract void waitForFutures(Iterable<FutureT> futures)
+      throws InterruptedException, ExecutionException;
+  protected abstract void addCallback(FutureT future,
+                                      Function<OutputT, Void> onSuccess,
+                                      Function<Throwable, Void> onFailure);
 
-  @Setup
-  public void setup() {
-    setupResources();
-  }
+  private final ConcurrentMap<FutureT, Boolean> futures = Maps.newConcurrentMap();
+  private final ConcurrentLinkedQueue<OutputT> results = Queues.newConcurrentLinkedQueue();
+  private final ConcurrentLinkedQueue<Throwable> errors = Queues.newConcurrentLinkedQueue();
 
   @StartBundle
   public void startBundle(Context c) {
-    futures = Maps.newConcurrentMap();
-    results = Queues.newConcurrentLinkedQueue();
-    errors = Queues.newConcurrentLinkedQueue();
+    futures.clear();
+    results.clear();
+    errors.clear();
   }
 
   @FinishBundle
   public void finishBundle(Context c) {
     if (!futures.isEmpty()) {
       try {
-        Futures.allAsList(futures.keySet()).get();
+        waitForFutures(futures.keySet());
       } catch (InterruptedException e) {
         Thread.currentThread().interrupt();
         throw new RuntimeException("Failed to process futures", e);
@@ -72,7 +66,6 @@ public abstract class AsyncDoFn<InputT, OutputT> extends DoFn<InputT, OutputT> {
         throw new RuntimeException("Failed to process futures", e);
       }
     }
-
     flush(c);
   }
 
@@ -80,31 +73,25 @@ public abstract class AsyncDoFn<InputT, OutputT> extends DoFn<InputT, OutputT> {
   public void processElement(ProcessContext c) {
     flush(c);
 
-    ListenableFuture<OutputT> f = processElement(c.element());
+    FutureT f = processElement(c.element());
     futures.put(f, false);
-
-    Futures.addCallback(f, new FutureCallback<OutputT>() {
-      @Override
-      public void onSuccess(@Nullable OutputT result) {
-        results.add(result);
-        futures.remove(f);
-      }
-
-      @Override
-      public void onFailure(Throwable t) {
-        errors.add(t);
-        futures.remove(f);
-      }
+    addCallback(f, r -> {
+      results.add(r);
+      futures.remove(f);
+      return null;
+    }, t -> {
+      errors.add(t);
+      futures.remove(f);
+      return null;
     });
   }
 
   private void flush(Context c) {
     if (!errors.isEmpty()) {
-      throw new RuntimeException("Error processing elements", errors.element());
+      throw new RuntimeException("Failed to process futures", errors.element());
     }
     results.forEach(c::output);
     results.clear();
-    errors.clear();
   }
 
 }

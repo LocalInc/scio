@@ -15,7 +15,7 @@
  * under the License.
  */
 
-package com.spotify.scio.transforms;
+package com.spotify.scio.extra.transforms;
 
 import com.spotify.scio.util.RemoteFileUtil;
 import org.apache.beam.sdk.transforms.DoFn;

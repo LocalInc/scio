@@ -21,7 +21,7 @@ import java.io.File
 import java.net.URI
 import java.nio.file.Path
 
-import com.spotify.scio.transforms.{DownloadDoFn, FileDoFn, PipeDoFn, WorkerDoFn}
+import com.spotify.scio.extra.transforms.{DownloadDoFn, FileDoFn, PipeDoFn, WorkerDoFn}
 import com.spotify.scio.util.Functions
 import com.spotify.scio.values.SCollection
 import org.apache.beam.sdk.transforms.ParDo

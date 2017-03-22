@@ -20,7 +20,8 @@ import java.nio.file.Path
 import java.util.UUID
 
 import com.spotify.scio._
-import com.spotify.scio.transforms.{FileDoFn, PipeDoFn}
+import com.spotify.scio.extra.transforms.PipeDoFn
+import com.spotify.scio.transforms.FileDoFn
 import org.apache.beam.sdk.transforms.ParDo
 
 import scala.io.Source
